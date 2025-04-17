@@ -1,136 +1,135 @@
 # HubSpot Company Deduplication
 
-A custom code solution for automatically deduplicating companies in HubSpot using Operations Hub workflows.
+A robust solution for automatically deduplicating companies in HubSpot using Operations Hub workflows.
 
 ## Overview
 
-This script helps solve the common problem of duplicate companies in HubSpot. When integrated into a workflow, it will:
-
-1. Search for other companies with the same name
-2. Analyze matches to determine the best deduplication strategy
-3. Merge companies intelligently to maintain data integrity
-4. Provide detailed logging and output fields for workflow branching
+This script provides a complete solution for company deduplication in HubSpot, addressing the common problem of duplicate company records. It intelligently identifies duplicates using multiple properties, merges them following a consistent strategy, and tracks the process using a custom property.
 
 ## Features
 
-- **Smart Deduplication**: Automatically detects and merges duplicate companies
-- **Intelligent Handling**: Uses strategies to handle multiple potential matches
-- **Flexible Configuration**: Easily change the property used for matching (name, domain, etc.)
+- **Bidirectional Merging**: Both merges duplicates into primary companies AND pulls duplicates into primary companies
+- **Multi-Property Matching**: Uses name plus domain/LinkedIn URLs for accurate duplicate detection
+- **Self-Documenting**: Tracks deduplication status using a custom property
+- **Primary Preservation**: Always keeps the oldest company record as the primary
 - **Detailed Logging**: Comprehensive logging for troubleshooting
-- **Output Fields**: Returns useful information to the workflow for branching logic
+- **Error Handling**: Robust error handling with HubSpot's built-in retry mechanism
 
-## Installation
+## Setup Instructions
 
-### Prerequisites
+### 1. Create a Custom Property
 
-- HubSpot Operations Hub (Professional or Enterprise tier)
-- Access to create and edit workflows
-- HubSpot API access token
+First, create a custom property in HubSpot:
+- Go to Settings → Properties → Create property
+- Object type: Company
+- Property name: `deduplication_status`
+- Label: "Deduplication Status"
+- Field type: Single-line text
+- Group: Custom properties
 
-### Setup Instructions
+### 2. Create the Workflow
 
 1. Create a new workflow in HubSpot
-2. Add a "Custom Code" action to your workflow
-3. Select "Node.js 20.x" as the language
-4. Copy and paste the script code into the editor
-5. Add your API token as a secret named "ACCESSTOKEN"
-6. Save and activate your workflow
+2. Set it to trigger when companies are:
+   - Created, OR
+   - Specific properties are updated (like name, domain), OR
+   - Manually enrolled
+3. Add a "Custom Code" action to your workflow
+4. Select "Node.js 20.x" as the language
+5. Copy and paste the script code into the editor
+6. Add your API token as a secret named "ACCESSTOKEN"
+7. Save and activate your workflow
 
-## Configuration Options
+### 3. Recommended Workflow Configuration
 
-The script can be customized by modifying these constants at the top:
+For optimal deduplication:
 
-```javascript
-const DEDUPE_PROPERTY = 'name'; // The property to use for deduplication
-const SECONDARY_PROPERTIES = ['domain', 'phone', 'address']; // Additional properties to log
-```
+1. **Sequential Processing**: Add multiple instances of the script in sequence:
+   - First script action
+   - 5-10 second delay
+   - Second script action (same code)
+   - 5-10 second delay
+   - Third script action (optional)
 
-### Deduplication Properties
-
-You can set `DEDUPE_PROPERTY` to any company property you want to use for matching:
-
-- `name` - Match by company name (default)
-- `domain` - Match by website domain
-- `phone` - Match by phone number
-- Or any other unique company property
+2. **Batch Processing**: When processing large numbers of companies:
+   - Process in batches of 100-200 companies at a time
+   - Monitor workflow execution to avoid excessive API rate limits
 
 ## How It Works
 
-1. **Trigger**: A company is enrolled in the workflow
-2. **Property Check**: The script gets the company's name (or other property)
-3. **Search**: It searches for other companies with the same property value
-4. **Analysis**: It analyzes the results:
-   - If no matches are found, nothing happens
-   - If one match is found, companies are merged
-   - If multiple matches are found, the oldest company (lowest ID) is chosen as primary
-5. **Merge**: The enrolled company is merged into the primary company
-6. **Output**: Results are provided as output fields for workflow branching
+### Deduplication Process
 
-## Merge Behavior
+1. **Status Check**: The script first checks the company's `deduplication_status`:
+   - If already `merged`, the company is skipped
+   - If `primary` or no status, it checks for duplicates
 
-When companies are merged:
+2. **Duplicate Detection**: Finds duplicates using a combination of:
+   - Company name matching
+   - Plus at least one additional identifier (domain, LinkedIn URL)
 
-- The primary company (usually the one with the lowest ID) retains its record
-- The secondary company's data is merged into the primary
-- If there are property conflicts, HubSpot's default property resolution applies
-- Associated records (contacts, deals, tickets) are moved to the primary company
+3. **Merge Strategy**: 
+   - If the current company is the oldest (lowest ID), other duplicates are merged into it
+   - If the current company is not the oldest, it's merged into the oldest company
 
-## Output Fields
+4. **Status Tracking**:
+   - Companies that become the main record are marked as `primary`
+   - Companies that are merged into others are marked as `merged`
 
-The script provides these output fields for workflow branching:
+### Matching Properties
 
-- `result`: Status of the operation ('Success', 'No duplicates found', 'Multiple matches resolved', 'Error')
-- `primaryCompanyId`: ID of the company that was kept as primary (if applicable)
-- `mergedCompanyIds`: List of IDs that were merged (if multiple matches)
-- `error`: Error message (if an error occurred)
+The script uses these properties for matching:
+- `name`: Primary company name (required)
+- `domain`: Company website domain
+- `linkedin_company_page`: LinkedIn company page URL
+- `sales_navigator_url`: LinkedIn Sales Navigator URL
 
-## Logging Examples
+Additional properties like `country`, `city`, `address`, and `phone` are logged but not used for matching.
 
-### No Matches Found
-```
-Looking for duplicates based on name = Example Corp
-Company domain: example.com
-No matching companies found, nothing to merge
-```
+## Customization Options
 
-### Single Match
-```
-Looking for duplicates based on name = Example Corp
-Company domain: example.com
-Merging enrolled company id=12345 into company id=67890
-Companies merged successfully!
-```
+You can customize the script by modifying these constants at the top:
 
-### Multiple Matches
-```
-Looking for duplicates based on name = ACCA software
-Company domain: acca.it
-Company address: Bagnoli Irpino, AV
-Found multiple potential company IDs: 32059092526, 32137260888
-Handling multiple matches by selecting the oldest company (lowest ID)
-Strategy: Using oldest company (ID: 32059092526) as the primary record
-Will merge current company (ID: 32024273493) and others into this primary company
-Successfully merged current company (ID: 32024273493) into primary (ID: 32059092526)
+```javascript
+// Primary property to use for deduplication
+const DEDUPE_PROPERTY = 'name';
+
+// Additional properties to use for deduplication when available
+const SECONDARY_PROPERTIES = [
+  'domain',
+  'linkedin_company_page',
+  'sales_navigator_url'
+];
+
+// Properties to use for logging and debugging
+const LOGGING_PROPERTIES = [
+  'country',
+  'city',
+  'phone',
+  'address'
+];
 ```
 
 ## Troubleshooting
 
 ### Common Issues
 
-1. **API Permission Errors**: Ensure your access token has proper permissions.
-2. **No Deduplication Occurring**: Check that the `DEDUPE_PROPERTY` exists and has values.
-3. **Workflow Not Enrolling**: Verify your workflow enrollment triggers.
+1. **API Rate Limits**: If you're processing many companies and hitting rate limits, reduce batch sizes and add delays.
+2. **Property Issues**: Ensure the `deduplication_status` property is created correctly and has no validation rules.
+3. **Merge Direction**: Companies merge based on ID (lowest/oldest becomes primary), not creation date.
 
 ### Debugging
 
-Enable additional logging by uncommenting this line:
-```javascript
-// console.log('All company properties:', JSON.stringify(companyResult.properties, null, 2));
-```
+The script provides detailed logging that shows exactly what's happening:
+- Which duplicate companies were found
+- Which properties matched
+- The merge direction
+- Success/failure of each operation
+
+Look for log messages with a ✓ symbol to confirm successful operations.
 
 ## Credits
 
-This script is based on solutions shared in the [HubSpot Community](https://community.hubspot.com/t5/APIs-Integrations/Custom-code-and-Company-deduplication/m-p/882799).
+This script builds on solutions shared in the [HubSpot Community](https://community.hubspot.com/t5/APIs-Integrations/Custom-code-and-Company-deduplication/m-p/882799) with significant enhancements to handle bidirectional merging and status tracking.
 
 ## License
 
